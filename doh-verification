@@ -1,0 +1,51 @@
+#!/bin/bash
+
+# doh-verification: A script to verify DNS-over-HTTPS (DoH) service functionality.
+
+LOG_FILE="/var/log/doh-verification.log"
+
+# Function to log messages along with the current timestamp.
+log_message() {
+    echo "$(date +'%Y-%m-%d %H:%M:%S') - $1" | tee -a "$LOG_FILE"
+}
+
+# DNS resolution test function using dig. Adjust the port if your DoH setup differs.
+test_dns_resolution() {
+    local test_domain=$1
+    local resolver_ip=$2
+    local resolver_port=$3
+
+    log_message "Testing DNS resolution for $test_domain via $resolver_ip:$resolver_port..."
+
+    # Perform the DNS query.
+    if dig @$resolver_ip -p $resolver_port $test_domain | grep -q "NOERROR"; then
+        log_message "Successfully resolved $test_domain."
+    else
+        log_message "Failed to resolve $test_domain. Check your DoH setup."
+        return 1
+    fi
+}
+
+# Main function to orchestrate DNS resolution tests.
+verify_doh_service() {
+    local resolver_ip="127.0.0.1"
+    local resolver_port="5053"  # Default port for https-dns-proxy in OpenWrt. Adjust as needed.
+
+    # Test resolution for a list of domains to ensure broad functionality.
+    local domains=("google.com" "openwrt.org" "github.com")
+
+    for domain in "${domains[@]}"; do
+        if ! test_dns_resolution "$domain" "$resolver_ip" "$resolver_port"; then
+            log_message "Verification failed for $domain."
+            return 1
+        fi
+    done
+
+    log_message "All tests passed. DoH service is functioning correctly."
+}
+
+# Start the verification process.
+log_message "Starting DoH service verification..."
+verify_doh_service
+
+exit 0
