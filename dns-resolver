@@ -1,0 +1,70 @@
+#!/bin/sh /etc/rc.common
+
+START=60
+STOP=10
+
+LOG_FILE="/var/log/dns-resolver.log"
+
+RETRY_INTERVAL=5
+MAX_RETRIES=5
+
+log() {
+    echo "$(date +'%Y-%m-%d %H:%M:%S') $1" >> "$LOG_FILE"
+}
+
+start_service() {
+    service_name=$1
+    log "Attempting to start ${service_name}..."
+    /etc/init.d/${service_name} start
+    
+    retries=0
+    while [ $retries -lt $MAX_RETRIES ]; do
+        if /etc/init.d/${service_name} status | grep -q "running"; then
+            log "${service_name} started successfully."
+            return 0
+        else
+            retries=$((retries+1))
+            sleep $RETRY_INTERVAL
+        fi
+    done
+
+    log "Failed to start ${service_name} after $MAX_RETRIES attempts."
+    return 1
+}
+
+start() {
+    log "Starting DNS resolver..."
+
+    # Ensure v2raya is running, attempt to start if not
+    if ! start_service "v2raya"; then
+        log "v2raya could not be confirmed as running. Exiting..."
+        return 1
+    fi
+
+    # Ensure https-dns-proxy is running, attempt to start if not
+    if ! start_service "https-dns-proxy"; then
+        log "https-dns-proxy could not be confirmed as running. Exiting..."
+        return 1
+    fi
+
+    # Restart dnsmasq to apply changes
+    log "Restarting dnsmasq to apply changes..."
+    /etc/init.d/dnsmasq restart
+
+    # Delay to allow services to fully initialize
+    sleep 10
+
+    # Check if DNS resolution is working
+    log "Checking DNS resolution..."
+    if dig @127.0.0.1 -p 5053 google.com | grep -q "NOERROR"; then
+        log "DNS resolution is working correctly."
+    else
+        log "DNS resolution check failed. Please check the logs for more information."
+        dig @127.0.0.1 -p 5053 google.com >> "$LOG_FILE" 2>&1
+    fi
+}
+
+stop() {
+    log "Stopping DNS resolver..."
+    /etc/init.d/dnsmasq stop
+}
